@@ -22,9 +22,26 @@ export const CreateNoteResultSchema = z.object({
   name: z.string(),
 });
 
+export const FolderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  accountName: z.string(),
+  noteCount: z.number(),
+});
+
+export const MoveNoteResultSchema = z.object({
+  success: z.boolean(),
+  noteId: z.string(),
+  noteName: z.string(),
+  targetFolderId: z.string(),
+  targetFolderName: z.string(),
+});
+
 export type NoteMetadata = z.infer<typeof NoteMetadataSchema>;
 export type NoteDetail = z.infer<typeof NoteDetailSchema>;
 export type CreateNoteResult = z.infer<typeof CreateNoteResultSchema>;
+export type Folder = z.infer<typeof FolderSchema>;
+export type MoveNoteResult = z.infer<typeof MoveNoteResultSchema>;
 
 /**
  * List notes from Apple Notes app
@@ -289,5 +306,123 @@ export async function createNote(title: string, body: string): Promise<CreateNot
     return validated;
   } catch (error: any) {
     throw new Error(`Failed to create note: ${error.message}`);
+  }
+}
+
+/**
+ * List all folders in Apple Notes
+ * @returns Array of folders with note counts
+ */
+export async function listFolders(): Promise<Folder[]> {
+  const script = `
+    const notesApp = Application("Notes");
+    const accounts = notesApp.accounts();
+
+    const result = [];
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      const folders = account.folders();
+
+      for (let j = 0; j < folders.length; j++) {
+        const folder = folders[j];
+
+        // Skip "Recently Deleted" folder
+        if (folder.name() === "Recently Deleted") {
+          continue;
+        }
+
+        result.push({
+          id: folder.id(),
+          name: folder.name(),
+          accountName: account.name(),
+          noteCount: folder.notes().length
+        });
+      }
+    }
+
+    return result;
+  `;
+
+  try {
+    const result = await runJxa<Folder[]>(script, []);
+
+    // Validate the result with Zod
+    const validated = z.array(FolderSchema).parse(result);
+    return validated;
+  } catch (error: any) {
+    throw new Error(`Failed to list folders: ${error.message}`);
+  }
+}
+
+/**
+ * Move a note to a different folder
+ * @param noteId - ID of the note to move
+ * @param targetFolderId - ID of the target folder
+ * @returns Result of the move operation
+ */
+export async function moveNote(noteId: string, targetFolderId: string): Promise<MoveNoteResult> {
+  const script = `
+    const notesApp = Application("Notes");
+    const noteId = args[0];
+    const targetFolderId = args[1];
+
+    // Find the note
+    let targetNote = null;
+    const allNotes = notesApp.notes();
+    for (let i = 0; i < allNotes.length; i++) {
+      const note = allNotes[i];
+      if (note.id() === noteId) {
+        targetNote = note;
+        break;
+      }
+    }
+
+    if (!targetNote) {
+      throw new Error(\`Note not found: \${noteId}\`);
+    }
+
+    // Find the target folder
+    let targetFolder = null;
+    const accounts = notesApp.accounts();
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      const folders = account.folders();
+      for (let j = 0; j < folders.length; j++) {
+        const folder = folders[j];
+        if (folder.id() === targetFolderId) {
+          targetFolder = folder;
+          break;
+        }
+      }
+      if (targetFolder) break;
+    }
+
+    if (!targetFolder) {
+      throw new Error(\`Folder not found: \${targetFolderId}\`);
+    }
+
+    // Move the note
+    notesApp.move(targetNote, { to: targetFolder });
+
+    return {
+      success: true,
+      noteId: targetNote.id(),
+      noteName: targetNote.name(),
+      targetFolderId: targetFolder.id(),
+      targetFolderName: targetFolder.name()
+    };
+  `;
+
+  try {
+    const result = await runJxa<MoveNoteResult>(script, [noteId, targetFolderId]);
+
+    // Validate the result with Zod
+    const validated = MoveNoteResultSchema.parse(result);
+    return validated;
+  } catch (error: any) {
+    if (error.message.includes('Note not found') || error.message.includes('Folder not found')) {
+      throw new Error(error.message);
+    }
+    throw new Error(`Failed to move note: ${error.message}`);
   }
 }

@@ -9,7 +9,7 @@ import {
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { listNotes, searchNotes, readNote, createNote } from './notes-service.js';
+import { listNotes, searchNotes, readNote, createNote, listFolders, moveNote } from './notes-service.js';
 
 /**
  * Apple Notes MCP Server
@@ -121,6 +121,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['title', 'body'],
         },
       },
+      {
+        name: 'list_folders',
+        description: 'List all folders in Apple Notes (excluding Recently Deleted)',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'move_note',
+        description: 'Move a note to a different folder',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            noteId: {
+              type: 'string',
+              description: 'ID of the note to move',
+            },
+            targetFolderId: {
+              type: 'string',
+              description: 'ID of the target folder',
+            },
+          },
+          required: ['noteId', 'targetFolderId'],
+        },
+      },
     ],
   };
 });
@@ -184,6 +210,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'list_folders': {
+        const folders = await listFolders();
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(folders, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'move_note': {
+        const MoveNoteArgsSchema = z.object({
+          noteId: z.string(),
+          targetFolderId: z.string(),
+        });
+        const parsed = MoveNoteArgsSchema.parse(args);
+        const result = await moveNote(parsed.noteId, parsed.targetFolderId);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully moved note "${result.noteName}" to folder "${result.targetFolderName}"`,
             },
           ],
         };

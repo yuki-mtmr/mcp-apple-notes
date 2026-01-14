@@ -10,8 +10,12 @@ const execAsync = promisify(exec);
  * 1. The script should be defined as a function.
  * 2. Arguments are passed as a JSON string and parsed within the JXA environment.
  * 3. The result is JSON stringified in JXA and parsed back in Node.js.
+ *
+ * @param scriptBody - The JXA script body
+ * @param args - Arguments to pass to the script
+ * @param timeout - Timeout in milliseconds (default: 30000)
  */
-export async function runJxa<T>(scriptBody: string, args: any[] = []): Promise<T> {
+export async function runJxa<T>(scriptBody: string, args: any[] = [], timeout: number = 30000): Promise<T> {
     // Wrap the script to handle JSON I/O
     // standard 'run' function in JXA can take arguments if called from command line with -l JavaScript
     // But passing complex objects via command line arguments is tricky.
@@ -38,13 +42,6 @@ export async function runJxa<T>(scriptBody: string, args: any[] = []): Promise<T
   `;
 
     try {
-        // Escaping for shell is painful.
-        // Ideally we'd use 'osascript -l JavaScript -e ...' but generic shell escaping is risky.
-        // However, Node's child_process.exec handles some specific shell interaction.
-        // For safety with large scripts/args, passing via stdin is better, but exec handles strings.
-        // Let's rely on JSON stringification being robust enough for now,
-        // but quote the script 'EOF' style if possible? Note osascript via stdin.
-
         // Using stdin for the script source to avoid shell escaping issues with the script code itself.
         const child = execAsync('osascript -l JavaScript');
         const process = child.child;
@@ -56,7 +53,12 @@ export async function runJxa<T>(scriptBody: string, args: any[] = []): Promise<T
         process.stdin.write(wrapper);
         process.stdin.end();
 
-        const { stdout, stderr } = await child;
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`JXA execution timeout after ${timeout}ms`)), timeout);
+        });
+
+        const { stdout, stderr } = await Promise.race([child, timeoutPromise]);
 
         // console.log in JXA outputs to stderr, not stdout
         // Try stderr first, then stdout

@@ -9,7 +9,7 @@ import {
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { listNotes, searchNotes, readNote, createNote, listFolders, moveNote } from './notes-service.js';
+import { listNotes, searchNotes, readNote, createNote, listFolders, moveNote, batchMoveNotes, createFolder } from './notes-service.js';
 
 /**
  * Apple Notes MCP Server
@@ -34,6 +34,8 @@ const server = new Server(
  */
 const ListNotesArgsSchema = z.object({
   limit: z.number().optional().default(100).describe('Maximum number of notes to return'),
+  includePreview: z.boolean().optional().default(false).describe('Include preview text'),
+  folderId: z.string().optional().describe('Filter by specific folder ID'),
 });
 
 const SearchNotesArgsSchema = z.object({
@@ -58,7 +60,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: 'list_notes',
-        description: 'List notes from Apple Notes app, sorted by modification date (most recent first)',
+        description: 'List notes from Apple Notes with folder info, sorted by modification date (most recent first). PERFORMANCE TIP: Use folderId to get notes from a specific folder MUCH faster (recommended). Set includePreview=false for speed.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -66,6 +68,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'number',
               description: 'Maximum number of notes to return (default: 100)',
               default: 100,
+            },
+            includePreview: {
+              type: 'boolean',
+              description: 'Include first 200 chars of plaintext (default: false for speed). WARNING: Slow for large collections.',
+              default: false,
+            },
+            folderId: {
+              type: 'string',
+              description: 'Optional: Filter by specific folder ID (MUCH faster than scanning all folders). Get folder IDs from list_folders.',
             },
           },
         },
@@ -131,7 +142,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: 'move_note',
-        description: 'Move a note to a different folder',
+        description: 'Move a single note to a different folder. IMPORTANT: Only use this for moving 1-2 notes. For 3+ notes, you MUST use batch_move_notes instead for performance.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -145,6 +156,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['noteId', 'targetFolderId'],
+        },
+      },
+      {
+        name: 'batch_move_notes',
+        description: 'Move multiple notes to a folder in a single JXA operation. ALWAYS use this when moving 3 or more notes - it is 10-50x faster than calling move_note multiple times. Automatically handles errors for individual notes.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            noteIds: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: 'Array of note IDs to move (can handle 100+ notes efficiently)',
+            },
+            targetFolderId: {
+              type: 'string',
+              description: 'ID of the target folder',
+            },
+          },
+          required: ['noteIds', 'targetFolderId'],
+        },
+      },
+      {
+        name: 'create_folder',
+        description: 'Create a new folder (optionally inside another folder)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Name of the new folder',
+            },
+            parentFolderId: {
+              type: 'string',
+              description: 'Optional: ID of the parent folder to create inside',
+            },
+          },
+          required: ['name'],
         },
       },
     ],
@@ -161,7 +211,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'list_notes': {
         const parsed = ListNotesArgsSchema.parse(args);
-        const notes = await listNotes(parsed.limit);
+        const notes = await listNotes(parsed.limit, parsed.includePreview, parsed.folderId);
 
         return {
           content: [
@@ -246,6 +296,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'batch_move_notes': {
+        const BatchMoveNotesArgsSchema = z.object({
+          noteIds: z.array(z.string()),
+          targetFolderId: z.string(),
+        });
+        const parsed = BatchMoveNotesArgsSchema.parse(args);
+        const result = await batchMoveNotes(parsed.noteIds, parsed.targetFolderId);
+
+        let message = `Batch move completed: ${result.moved} notes moved successfully`;
+        if (result.failed.length > 0) {
+          message += `\n\nFailed to move ${result.failed.length} notes:\n`;
+          message += result.failed.map((f: any) => `- ${f.noteId}: ${f.error}`).join('\n');
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: message,
+            },
+          ],
+        };
+      }
+
+      case 'create_folder': {
+        const CreateFolderArgsSchema = z.object({
+          name: z.string(),
+          parentFolderId: z.string().optional(),
+        });
+        const parsed = CreateFolderArgsSchema.parse(args);
+        const result = await createFolder(parsed.name, parsed.parentFolderId);
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully created folder "${result.name}" (ID: ${result.id})`,
+            },
+          ],
+        };
+      }
+
       default:
         throw new McpError(
           ErrorCode.MethodNotFound,
@@ -287,14 +379,19 @@ async function main() {
 }
 
 // Error handling for uncaught errors
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: any) => {
+  // Don't crash on EPIPE errors (broken pipe when client disconnects)
+  if (error.code === 'EPIPE' || error.errno === 'EPIPE') {
+    console.error('Client disconnected (EPIPE)');
+    return;
+  }
   console.error('Uncaught exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled rejection at:', promise, 'reason:', reason);
-  process.exit(1);
+  // Don't exit on rejection - log and continue
 });
 
 main().catch((error) => {

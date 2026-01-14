@@ -22,12 +22,15 @@ export const CreateNoteResultSchema = z.object({
   name: z.string(),
 });
 
-export const FolderSchema = z.object({
+export const FolderSchema: z.ZodType<any> = z.lazy(() => z.object({
   id: z.string(),
   name: z.string(),
   accountName: z.string(),
   noteCount: z.number(),
-});
+  path: z.string(), // Full path like "AI/GCI" or "etc./その他"
+  parentId: z.string().optional(),
+  subfolders: z.array(FolderSchema).optional(),
+}));
 
 export const MoveNoteResultSchema = z.object({
   success: z.boolean(),
@@ -310,37 +313,69 @@ export async function createNote(title: string, body: string): Promise<CreateNot
 }
 
 /**
- * List all folders in Apple Notes
- * @returns Array of folders with note counts
+ * List all folders in Apple Notes with nested structure
+ * @returns Array of folders with note counts and subfolders
  */
 export async function listFolders(): Promise<Folder[]> {
   const script = `
     const notesApp = Application("Notes");
     const accounts = notesApp.accounts();
 
-    const result = [];
-    for (let i = 0; i < accounts.length; i++) {
-      const account = accounts[i];
-      const folders = account.folders();
+    // Recursive function to process folders
+    function processFolders(folders, accountName, parentPath = '', parentId = null) {
+      const result = [];
 
-      for (let j = 0; j < folders.length; j++) {
-        const folder = folders[j];
+      for (let i = 0; i < folders.length; i++) {
+        const folder = folders[i];
+        const folderName = folder.name();
 
         // Skip "Recently Deleted" folder
-        if (folder.name() === "Recently Deleted") {
+        if (folderName === "Recently Deleted") {
           continue;
         }
 
-        result.push({
-          id: folder.id(),
-          name: folder.name(),
-          accountName: account.name(),
-          noteCount: folder.notes().length
-        });
+        const folderId = folder.id();
+        const path = parentPath ? \`\${parentPath}/\${folderName}\` : folderName;
+
+        const folderData = {
+          id: folderId,
+          name: folderName,
+          accountName: accountName,
+          noteCount: folder.notes().length,
+          path: path
+        };
+
+        if (parentId) {
+          folderData.parentId = parentId;
+        }
+
+        // Check for subfolders
+        try {
+          const subfolders = folder.folders();
+          if (subfolders && subfolders.length > 0) {
+            folderData.subfolders = processFolders(subfolders, accountName, path, folderId);
+          }
+        } catch (e) {
+          // No subfolders
+        }
+
+        result.push(folderData);
       }
+
+      return result;
     }
 
-    return result;
+    const allFolders = [];
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+      const accountName = account.name();
+      const folders = account.folders();
+
+      const processed = processFolders(folders, accountName);
+      allFolders.push(...processed);
+    }
+
+    return allFolders;
   `;
 
   try {

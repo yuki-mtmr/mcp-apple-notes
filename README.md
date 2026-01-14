@@ -4,10 +4,13 @@ MCP (Model Context Protocol) server for accessing Apple Notes on macOS. This ser
 
 ## Features
 
-- **List Notes**: Get a list of all notes sorted by modification date
+- **List Notes**: Get a list of all notes sorted by modification date with folder info
 - **Search Notes**: Search notes by title or content
 - **Read Note**: Get the full content of a specific note
 - **Create Note**: Create new notes in Apple Notes
+- **List Folders**: List all folders with nested structure
+- **Move Note**: Move a note to a different folder
+- **Batch Move Notes**: Move multiple notes efficiently in a single operation
 
 ## Prerequisites
 
@@ -65,17 +68,21 @@ This will open a web interface where you can test all the tools.
 
 #### 1. list_notes
 
-List notes sorted by modification date (most recent first).
+List notes sorted by modification date (most recent first) with folder information.
 
 **Parameters:**
-- `limit` (optional, default: 100): Maximum number of notes to return
+- `limit` (optional, default: 100): Maximum number of notes to return. Use 500+ for bulk categorization operations.
+- `includePreview` (optional, default: true): Include first 200 chars of plaintext for quick categorization
 
 **Example:**
 ```json
 {
-  "limit": 10
+  "limit": 500,
+  "includePreview": true
 }
 ```
+
+**Performance**: Optimized for large collections. Sorting is done efficiently before fetching full metadata.
 
 #### 2. search_notes
 
@@ -122,6 +129,53 @@ Create a new note in Apple Notes.
   "body": "This is the content of my new note."
 }
 ```
+
+#### 5. list_folders
+
+List all folders in Apple Notes with nested structure, excluding "Recently Deleted".
+
+**Example:**
+```json
+{}
+```
+
+**Returns:** Array of folders with `id`, `name`, `accountName`, `noteCount`, `path`, and optional `subfolders`.
+
+#### 6. move_note
+
+Move a single note to a different folder.
+
+**Parameters:**
+- `noteId` (required): ID of the note to move
+- `targetFolderId` (required): ID of the target folder
+
+**Example:**
+```json
+{
+  "noteId": "x-coredata://...../ICNote/p123",
+  "targetFolderId": "x-coredata://...../ICFolder/p456"
+}
+```
+
+**Performance**: Optimized to search notes by folder first, not by iterating all notes.
+
+#### 7. batch_move_notes
+
+Move multiple notes to a folder in a single JXA operation. **Much faster** than calling `move_note` multiple times.
+
+**Parameters:**
+- `noteIds` (required): Array of note IDs to move
+- `targetFolderId` (required): ID of the target folder
+
+**Example:**
+```json
+{
+  "noteIds": ["x-coredata://.../p123", "x-coredata://.../p124", "x-coredata://.../p125"],
+  "targetFolderId": "x-coredata://...../ICFolder/p456"
+}
+```
+
+**Performance**: Ideal for bulk operations (e.g., categorizing 100+ notes). Single JXA call instead of multiple.
 
 ## Permissions
 
@@ -189,6 +243,30 @@ Grant accessibility permissions to your terminal/IDE:
 - Verify Node.js version: `node --version` (should be 18+)
 - Check stderr logs for error messages
 
+### Claude Desktop "process exited with code 1" error
+
+This error is now handled gracefully:
+- **EPIPE errors** (broken pipe when client disconnects) no longer crash the server
+- Unhandled rejections are logged but don't terminate the process
+- Check MCP logs at `~/Library/Logs/Claude/mcp-server-apple-notes.log` for details
+
+### Performance issues with bulk operations
+
+For moving many notes:
+- ✅ **Use `batch_move_notes`** instead of calling `move_note` multiple times
+- ✅ **Use high limit** (e.g., 500) with `list_notes` to get all notes in one call
+- The server includes timeouts (30-120s) to prevent hanging on large operations
+
+## Performance Optimizations
+
+This server includes several optimizations for handling large note collections:
+
+1. **Efficient Sorting**: Notes are sorted by modification date before fetching full metadata
+2. **Folder-Based Search**: When moving notes, searches by folder first instead of iterating all notes
+3. **Batch Operations**: `batch_move_notes` performs multiple moves in a single JXA call
+4. **Timeouts**: Configurable timeouts prevent hanging (30s default, 60-120s for batch operations)
+5. **Error Handling**: EPIPE and connection errors are handled gracefully without crashing
+
 ## Future Enhancements
 
 See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned features:
@@ -196,7 +274,6 @@ See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned featu
 - Remote access via SSE (Server-Sent Events)
 - iPhone integration via Shortcuts
 - Update and delete operations
-- Folder management
 - Attachment support
 
 ## License

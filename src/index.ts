@@ -9,7 +9,7 @@ import {
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { listNotes, searchNotes, readNote, createNote, listFolders, moveNote, batchMoveNotes, createFolder } from './notes-service.js';
+import { listNotes, searchNotes, readNote, createNote, listFolders } from './notes-service.js';
 
 /**
  * Apple Notes MCP Server
@@ -140,63 +140,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
-      {
-        name: 'move_note',
-        description: 'Move a single note to a different folder. IMPORTANT: Only use this for moving 1-2 notes. For 3+ notes, you MUST use batch_move_notes instead for performance.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            noteId: {
-              type: 'string',
-              description: 'ID of the note to move',
-            },
-            targetFolderId: {
-              type: 'string',
-              description: 'ID of the target folder',
-            },
-          },
-          required: ['noteId', 'targetFolderId'],
-        },
-      },
-      {
-        name: 'batch_move_notes',
-        description: 'Move multiple notes to a folder in a single JXA operation. ALWAYS use this when moving 3 or more notes - it is 10-50x faster than calling move_note multiple times. Automatically handles errors for individual notes.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            noteIds: {
-              type: 'array',
-              items: {
-                type: 'string',
-              },
-              description: 'Array of note IDs to move (can handle 100+ notes efficiently)',
-            },
-            targetFolderId: {
-              type: 'string',
-              description: 'ID of the target folder',
-            },
-          },
-          required: ['noteIds', 'targetFolderId'],
-        },
-      },
-      {
-        name: 'create_folder',
-        description: 'Create a new folder (optionally inside another folder)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'Name of the new folder',
-            },
-            parentFolderId: {
-              type: 'string',
-              description: 'Optional: ID of the parent folder to create inside',
-            },
-          },
-          required: ['name'],
-        },
-      },
     ],
   };
 });
@@ -273,66 +216,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text',
               text: JSON.stringify(folders, null, 2),
-            },
-          ],
-        };
-      }
-
-      case 'move_note': {
-        const MoveNoteArgsSchema = z.object({
-          noteId: z.string(),
-          targetFolderId: z.string(),
-        });
-        const parsed = MoveNoteArgsSchema.parse(args);
-        const result = await moveNote(parsed.noteId, parsed.targetFolderId);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Successfully moved note "${result.noteName}" to folder "${result.targetFolderName}"`,
-            },
-          ],
-        };
-      }
-
-      case 'batch_move_notes': {
-        const BatchMoveNotesArgsSchema = z.object({
-          noteIds: z.array(z.string()),
-          targetFolderId: z.string(),
-        });
-        const parsed = BatchMoveNotesArgsSchema.parse(args);
-        const result = await batchMoveNotes(parsed.noteIds, parsed.targetFolderId);
-
-        let message = `Batch move completed: ${result.moved} notes moved successfully`;
-        if (result.failed.length > 0) {
-          message += `\n\nFailed to move ${result.failed.length} notes:\n`;
-          message += result.failed.map((f: any) => `- ${f.noteId}: ${f.error}`).join('\n');
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: message,
-            },
-          ],
-        };
-      }
-
-      case 'create_folder': {
-        const CreateFolderArgsSchema = z.object({
-          name: z.string(),
-          parentFolderId: z.string().optional(),
-        });
-        const parsed = CreateFolderArgsSchema.parse(args);
-        const result = await createFolder(parsed.name, parsed.parentFolderId);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Successfully created folder "${result.name}" (ID: ${result.id})`,
             },
           ],
         };

@@ -13,9 +13,9 @@ const execAsync = promisify(exec);
  *
  * @param scriptBody - The JXA script body
  * @param args - Arguments to pass to the script
- * @param timeout - Timeout in milliseconds (default: 30000)
+ * @param timeout - Timeout in milliseconds (default: 10000)
  */
-export async function runJxa<T>(scriptBody: string, args: any[] = [], timeout: number = 30000): Promise<T> {
+export async function runJxa<T>(scriptBody: string, args: any[] = [], timeout: number = 10000): Promise<T> {
     // Wrap the script to handle JSON I/O
     // standard 'run' function in JXA can take arguments if called from command line with -l JavaScript
     // But passing complex objects via command line arguments is tricky.

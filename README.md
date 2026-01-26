@@ -1,3 +1,5 @@
+[English](README.md) | [日本語](README.ja.md)
+
 # Apple Notes MCP Server
 
 MCP (Model Context Protocol) server for accessing Apple Notes on macOS. This server allows AI assistants like Claude to read, search, and create notes in your Apple Notes app.

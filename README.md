@@ -10,6 +10,9 @@ MCP (Model Context Protocol) server for accessing Apple Notes on macOS. This ser
 - **Search Notes**: Search notes by title or content
 - **Read Note**: Get the full content of a specific note
 - **Create Note**: Create new notes in Apple Notes
+- **Update Note**: Update title or body of an existing note
+- **Delete Note**: Delete a note (moves to Recently Deleted)
+- **Get Note for Summary**: Get note content optimized for AI summarization
 - **List Folders**: List all folders with nested structure
 - **Move Note**: Move a note to a different folder
 - **Batch Move Notes**: Move multiple notes efficiently in a single operation
@@ -210,6 +213,58 @@ Move multiple notes to a folder in a single JXA operation. **Much faster** than 
 
 **Performance**: Ideal for bulk operations (e.g., categorizing 100+ notes). Single JXA call instead of multiple.
 
+#### 8. update_note
+
+Update an existing note's title and/or body.
+
+**Parameters:**
+- `noteId` (required): ID of the note to update
+- `title` (optional): New title for the note
+- `body` (optional): New body content (plain text)
+
+At least one of `title` or `body` must be provided.
+
+**Example:**
+```json
+{
+  "noteId": "x-coredata://...../ICNote/p123",
+  "title": "Updated Title",
+  "body": "This is the updated content."
+}
+```
+
+#### 9. delete_note
+
+Delete a note from Apple Notes. The note is moved to "Recently Deleted" folder.
+
+**Parameters:**
+- `noteId` (required): ID of the note to delete
+
+**Example:**
+```json
+{
+  "noteId": "x-coredata://...../ICNote/p123"
+}
+```
+
+**Note**: Deleted notes can be recovered from the "Recently Deleted" folder in Apple Notes within 30 days.
+
+#### 10. get_note_for_summary
+
+Get note content optimized for AI summarization. Returns plaintext with metadata useful for summarization.
+
+**Parameters:**
+- `nameOrId` (required): Note ID or name to retrieve
+
+**Example:**
+```json
+{
+  "nameOrId": "Meeting Notes 2024"
+}
+```
+
+**Returns:** Object with `id`, `name`, `plaintext`, `creationDate`, `modificationDate`, `folderName`, `wordCount`, and `characterCount`.
+
 ## Permissions
 
 When you first run this server, macOS may prompt you to grant accessibility permissions. You need to:
@@ -252,8 +307,8 @@ For manual testing:
 
 ## Security Notes
 
-- The server only implements **Create** operations for write access
-- Update and Delete operations are intentionally not implemented for safety
+- **Create, Update, Delete** operations are available for managing notes
+- Deleted notes are moved to "Recently Deleted" folder and can be recovered within 30 days
 - HTML content is escaped to prevent injection attacks
 - All operations require macOS accessibility permissions
 
@@ -306,7 +361,6 @@ See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for planned featu
 
 - Remote access via SSE (Server-Sent Events)
 - iPhone integration via Shortcuts
-- Update and delete operations
 - Attachment support
 
 ## License

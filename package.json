@@ -10,18 +10,44 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
-  "keywords": ["mcp", "apple-notes", "notes", "macos", "jxa"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "apple-notes",
+    "notes",
+    "macos",
+    "jxa"
+  ],
+  "author": "Yuki Matsumori",
   "license": "ISC",
   "description": "MCP server for Apple Notes on macOS",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuki-mtmr/mcp-apple-notes.git"
+  },
+  "homepage": "https://github.com/yuki-mtmr/mcp-apple-notes#readme",
+  "bugs": {
+    "url": "https://github.com/yuki-mtmr/mcp-apple-notes/issues"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "zod": "^4.3.5"
   },
   "devDependencies": {
     "@types/node": "^25.0.8",
-    "typescript": "^5.9.3"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

@@ -20,25 +20,54 @@ MCP (Model Context Protocol) server for accessing Apple Notes on macOS. This ser
 
 ## Installation
 
-1. Clone or download this repository
-2. Install dependencies:
+### Quick Start (Recommended)
 
-```bash
-npm install
+Use npx directly in Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "apple-notes": {
+      "command": "npx",
+      "args": ["-y", "mcp-apple-notes"]
+    }
+  }
+}
 ```
 
-3. Build the project:
+### Global Installation
 
 ```bash
+npm install -g mcp-apple-notes
+```
+
+Then configure Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "apple-notes": {
+      "command": "mcp-apple-notes"
+    }
+  }
+}
+```
+
+### From Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yuki-mtmr/mcp-apple-notes.git
+cd mcp-apple-notes
+```
+
+2. Install and build:
+```bash
+npm install
 npm run build
 ```
 
-## Usage
-
-### With Claude Desktop
-
-Add this configuration to your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
+3. Configure Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
@@ -51,6 +80,8 @@ Add this configuration to your Claude Desktop config file (`~/Library/Applicatio
 ```
 
 Replace `/absolute/path/to/mcp-apple-notes` with the actual path to this project.
+
+## Usage
 
 Restart Claude Desktop, and you should see the Apple Notes tools available.
 

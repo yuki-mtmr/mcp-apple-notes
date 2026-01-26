@@ -38,10 +38,90 @@ export const FolderSchema = z.object({
   noteCount: z.number(),
 });
 
+export const UpdateNoteResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  modificationDate: z.string(),
+  success: z.boolean(),
+});
+
+export const UpdateNoteOptionsSchema = z.object({
+  title: z.string().optional(),
+  body: z.string().optional(),
+});
+
+export const MoveNoteResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  previousFolderId: z.string(),
+  newFolderId: z.string(),
+  newFolderName: z.string(),
+  success: z.boolean(),
+});
+
+export const DeleteNoteResultSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  success: z.boolean(),
+});
+
+export const ListNotesFilterSchema = z.object({
+  createdAfter: z.string().optional(),
+  createdBefore: z.string().optional(),
+  modifiedAfter: z.string().optional(),
+  modifiedBefore: z.string().optional(),
+  titleContains: z.string().optional(),
+});
+
+export const ListNotesExtendedOptionsSchema = z.object({
+  limit: z.number().optional().default(100),
+  includePreview: z.boolean().optional().default(false),
+  folderId: z.string().optional(),
+  sortBy: z.enum(['modificationDate', 'creationDate', 'title', 'folder']).optional().default('modificationDate'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+  filter: ListNotesFilterSchema.optional(),
+});
+
+export const NoteForSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  plaintext: z.string(),
+  creationDate: z.string(),
+  modificationDate: z.string(),
+  folderName: z.string(),
+  wordCount: z.number(),
+  characterCount: z.number(),
+});
+
 export type NoteMetadata = z.infer<typeof NoteMetadataSchema>;
 export type NoteDetail = z.infer<typeof NoteDetailSchema>;
 export type CreateNoteResult = z.infer<typeof CreateNoteResultSchema>;
 export type Folder = z.infer<typeof FolderSchema>;
+export type UpdateNoteResult = z.infer<typeof UpdateNoteResultSchema>;
+export type UpdateNoteOptions = z.infer<typeof UpdateNoteOptionsSchema>;
+export type MoveNoteResult = z.infer<typeof MoveNoteResultSchema>;
+export type DeleteNoteResult = z.infer<typeof DeleteNoteResultSchema>;
+export type ListNotesFilter = z.infer<typeof ListNotesFilterSchema>;
+export type ListNotesExtendedOptions = z.infer<typeof ListNotesExtendedOptionsSchema>;
+export type ListNotesExtendedInput = z.input<typeof ListNotesExtendedOptionsSchema>;
+export type NoteForSummary = z.infer<typeof NoteForSummarySchema>;
+
+// Maximum body size: 100KB
+const MAX_BODY_SIZE = 100 * 1024;
+
+/**
+ * Escape HTML entities to prevent XSS
+ * @param text - Text to escape
+ * @returns Escaped text
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 /**
  * List notes from Apple Notes app with enhanced metadata
@@ -163,6 +243,94 @@ export async function listNotes(limit: number = 10, includePreview: boolean = fa
   } catch (error: any) {
     throw new Error(`Failed to list notes: ${error.message}`);
   }
+}
+
+/**
+ * List notes with extended sorting and filtering options
+ * @param options - Extended options including sortBy, sortOrder, and filter
+ * @returns Array of note metadata sorted and filtered as specified
+ */
+export async function listNotesExtended(options: ListNotesExtendedInput = {}): Promise<NoteMetadata[]> {
+  const {
+    limit = 100,
+    includePreview = false,
+    folderId,
+    sortBy = 'modificationDate',
+    sortOrder = 'desc',
+    filter,
+  } = options;
+
+  // Fetch all notes (we'll sort and filter in JS for flexibility)
+  const allNotes = await listNotes(10000, includePreview, folderId);
+
+  // Apply filters
+  let filteredNotes = allNotes;
+
+  if (filter) {
+    filteredNotes = allNotes.filter(note => {
+      // Filter by createdAfter
+      if (filter.createdAfter) {
+        const createdDate = new Date(note.creationDate);
+        const afterDate = new Date(filter.createdAfter);
+        if (createdDate < afterDate) return false;
+      }
+
+      // Filter by createdBefore
+      if (filter.createdBefore) {
+        const createdDate = new Date(note.creationDate);
+        const beforeDate = new Date(filter.createdBefore);
+        if (createdDate >= beforeDate) return false;
+      }
+
+      // Filter by modifiedAfter
+      if (filter.modifiedAfter) {
+        const modifiedDate = new Date(note.modificationDate);
+        const afterDate = new Date(filter.modifiedAfter);
+        if (modifiedDate < afterDate) return false;
+      }
+
+      // Filter by modifiedBefore
+      if (filter.modifiedBefore) {
+        const modifiedDate = new Date(note.modificationDate);
+        const beforeDate = new Date(filter.modifiedBefore);
+        if (modifiedDate >= beforeDate) return false;
+      }
+
+      // Filter by titleContains (case-insensitive)
+      if (filter.titleContains) {
+        const titleLower = note.name.toLowerCase();
+        const searchLower = filter.titleContains.toLowerCase();
+        if (!titleLower.includes(searchLower)) return false;
+      }
+
+      return true;
+    });
+  }
+
+  // Apply sorting
+  const sortedNotes = [...filteredNotes].sort((a, b) => {
+    let comparison = 0;
+
+    switch (sortBy) {
+      case 'modificationDate':
+        comparison = new Date(a.modificationDate).getTime() - new Date(b.modificationDate).getTime();
+        break;
+      case 'creationDate':
+        comparison = new Date(a.creationDate).getTime() - new Date(b.creationDate).getTime();
+        break;
+      case 'title':
+        comparison = a.name.localeCompare(b.name);
+        break;
+      case 'folder':
+        comparison = (a.folderName || '').localeCompare(b.folderName || '');
+        break;
+    }
+
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
+  // Apply limit
+  return sortedNotes.slice(0, limit);
 }
 
 /**
@@ -314,6 +482,79 @@ export async function readNote(nameOrId: string): Promise<NoteDetail> {
 }
 
 /**
+ * Get a note's content optimized for summarization
+ * Returns plaintext with metadata useful for AI summarization
+ * @param nameOrId - Note ID or name to retrieve
+ * @returns Note content with metadata for summarization
+ */
+export async function getNoteForSummary(nameOrId: string): Promise<NoteForSummary> {
+  const script = `
+    const notesApp = Application("Notes");
+    const searchTerm = args[0];
+
+    let targetNote = null;
+    let folderName = "";
+
+    // Find note by ID or name
+    const accounts = notesApp.accounts();
+    for (let a = 0; a < accounts.length && !targetNote; a++) {
+      const folders = accounts[a].folders();
+      for (let f = 0; f < folders.length && !targetNote; f++) {
+        const folder = folders[f];
+        if (folder.name() === "Recently Deleted") continue;
+        const notes = folder.notes();
+        for (let n = 0; n < notes.length; n++) {
+          const note = notes[n];
+          if (note.id() === searchTerm || note.name() === searchTerm) {
+            targetNote = note;
+            folderName = folder.name();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!targetNote) {
+      throw new Error(\`Note not found: \${searchTerm}\`);
+    }
+
+    // Get plaintext content
+    const plaintext = targetNote.plaintext();
+
+    // Calculate word count (split by whitespace, filter empty)
+    const words = plaintext.trim().split(/\\s+/).filter(w => w.length > 0);
+    const wordCount = words.length;
+
+    // Character count (excluding leading/trailing whitespace)
+    const characterCount = plaintext.trim().length;
+
+    return {
+      id: targetNote.id(),
+      name: targetNote.name(),
+      plaintext: plaintext,
+      creationDate: targetNote.creationDate().toISOString(),
+      modificationDate: targetNote.modificationDate().toISOString(),
+      folderName: folderName,
+      wordCount: wordCount,
+      characterCount: characterCount,
+    };
+  `;
+
+  try {
+    const result = await runJxa<NoteForSummary>(script, [nameOrId], 10000);
+
+    // Validate the result with Zod
+    const validated = NoteForSummarySchema.parse(result);
+    return validated;
+  } catch (error: any) {
+    if (error.message.includes('Note not found')) {
+      throw new Error(`Note not found: ${nameOrId}`);
+    }
+    throw new Error(`Failed to get note for summary: ${error.message}`);
+  }
+}
+
+/**
  * Create a new note in Apple Notes
  * @param title - Title of the new note
  * @param body - Body content of the note (plain text or HTML)
@@ -383,6 +624,177 @@ export async function createNote(title: string, body: string): Promise<CreateNot
 }
 
 /**
+ * Update an existing note in Apple Notes
+ * @param noteId - The ID of the note to update
+ * @param options - Update options (title, body)
+ * @returns Updated note metadata with success flag
+ */
+export async function updateNote(noteId: string, options: UpdateNoteOptions): Promise<UpdateNoteResult> {
+  // Validate that at least one update field is provided
+  if (!options.title && !options.body) {
+    throw new Error('At least one of title or body must be provided');
+  }
+
+  // Validate body size
+  if (options.body && options.body.length > MAX_BODY_SIZE) {
+    throw new Error(`Body exceeds maximum size of ${MAX_BODY_SIZE} bytes`);
+  }
+
+  const script = `
+    const notesApp = Application("Notes");
+    const noteId = args[0];
+    const newTitle = args[1];
+    const newBody = args[2];
+
+    let targetNote = null;
+
+    // Find note by ID
+    const allNotes = notesApp.notes();
+    for (let i = 0; i < allNotes.length; i++) {
+      const note = allNotes[i];
+      if (note.id() === noteId) {
+        targetNote = note;
+        break;
+      }
+    }
+
+    if (!targetNote) {
+      throw new Error(\`Note not found: \${noteId}\`);
+    }
+
+    // Update title if provided
+    if (newTitle !== null && newTitle !== undefined) {
+      targetNote.name = newTitle;
+    }
+
+    // Update body if provided
+    if (newBody !== null && newBody !== undefined) {
+      // Body should be HTML content
+      targetNote.body = newBody;
+    }
+
+    // Return updated note metadata
+    return {
+      id: targetNote.id(),
+      name: targetNote.name(),
+      modificationDate: targetNote.modificationDate().toISOString(),
+      success: true,
+    };
+  `;
+
+  // Prepare body with HTML escaping if provided
+  const escapedBody = options.body ? escapeHtml(options.body) : null;
+  const htmlBody = escapedBody ? `<div>${escapedBody}</div>` : null;
+
+  try {
+    const result = await runJxa<UpdateNoteResult>(
+      script,
+      [noteId, options.title ?? null, htmlBody],
+      10000
+    );
+
+    // Validate the result with Zod
+    const validated = UpdateNoteResultSchema.parse(result);
+    return validated;
+  } catch (error: any) {
+    if (error.message.includes('Note not found')) {
+      throw new Error(`Note not found: ${noteId}`);
+    }
+    throw new Error(`Failed to update note: ${error.message}`);
+  }
+}
+
+/**
+ * Move a note to a different folder
+ * @param noteId - The ID of the note to move
+ * @param targetFolderId - The ID of the target folder
+ * @returns Move result with previous and new folder info
+ */
+export async function moveNote(noteId: string, targetFolderId: string): Promise<MoveNoteResult> {
+  const script = `
+    const notesApp = Application("Notes");
+    const noteId = args[0];
+    const targetFolderId = args[1];
+
+    let targetNote = null;
+    let previousFolderId = null;
+    let targetFolder = null;
+
+    // Find note by ID and track its current folder
+    const accounts = notesApp.accounts();
+    for (let a = 0; a < accounts.length && !targetNote; a++) {
+      const folders = accounts[a].folders();
+      for (let f = 0; f < folders.length && !targetNote; f++) {
+        const folder = folders[f];
+        const notes = folder.notes();
+        for (let n = 0; n < notes.length; n++) {
+          if (notes[n].id() === noteId) {
+            targetNote = notes[n];
+            previousFolderId = folder.id();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!targetNote) {
+      throw new Error(\`Note not found: \${noteId}\`);
+    }
+
+    // Find target folder by ID
+    for (let a = 0; a < accounts.length && !targetFolder; a++) {
+      const folders = accounts[a].folders();
+      for (let f = 0; f < folders.length; f++) {
+        if (folders[f].id() === targetFolderId) {
+          targetFolder = folders[f];
+          break;
+        }
+      }
+    }
+
+    if (!targetFolder) {
+      throw new Error(\`Folder not found: \${targetFolderId}\`);
+    }
+
+    // Prevent moving to Recently Deleted folder
+    if (targetFolder.name() === "Recently Deleted") {
+      throw new Error("Cannot move to Recently Deleted folder");
+    }
+
+    // Move the note to the target folder
+    notesApp.move(targetNote, { to: targetFolder });
+
+    return {
+      id: noteId,
+      name: targetNote.name(),
+      previousFolderId: previousFolderId,
+      newFolderId: targetFolderId,
+      newFolderName: targetFolder.name(),
+      success: true,
+    };
+  `;
+
+  try {
+    const result = await runJxa<MoveNoteResult>(script, [noteId, targetFolderId], 15000);
+
+    // Validate the result with Zod
+    const validated = MoveNoteResultSchema.parse(result);
+    return validated;
+  } catch (error: any) {
+    if (error.message.includes('Note not found')) {
+      throw new Error(`Note not found: ${noteId}`);
+    }
+    if (error.message.includes('Folder not found')) {
+      throw new Error(`Folder not found: ${targetFolderId}`);
+    }
+    if (error.message.includes('Recently Deleted')) {
+      throw new Error('Cannot move to Recently Deleted folder');
+    }
+    throw new Error(`Failed to move note: ${error.message}`);
+  }
+}
+
+/**
  * List all folders in Apple Notes (flat list)
  * @returns Array of folders with note counts
  */
@@ -422,5 +834,57 @@ export async function listFolders(): Promise<Folder[]> {
     return validated;
   } catch (error: any) {
     throw new Error(`Failed to list folders: ${error.message}`);
+  }
+}
+
+/**
+ * Delete a note from Apple Notes
+ * @param noteId - The ID of the note to delete
+ * @returns Delete result with note info and success flag
+ */
+export async function deleteNote(noteId: string): Promise<DeleteNoteResult> {
+  const script = `
+    const notesApp = Application("Notes");
+    const noteId = args[0];
+
+    let targetNote = null;
+    let noteName = "";
+
+    // Find note by ID
+    const allNotes = notesApp.notes();
+    for (let i = 0; i < allNotes.length; i++) {
+      const note = allNotes[i];
+      if (note.id() === noteId) {
+        targetNote = note;
+        noteName = note.name();
+        break;
+      }
+    }
+
+    if (!targetNote) {
+      throw new Error(\`Note not found: \${noteId}\`);
+    }
+
+    // Delete the note
+    notesApp.delete(targetNote);
+
+    return {
+      id: noteId,
+      name: noteName,
+      success: true,
+    };
+  `;
+
+  try {
+    const result = await runJxa<DeleteNoteResult>(script, [noteId], 10000);
+
+    // Validate the result with Zod
+    const validated = DeleteNoteResultSchema.parse(result);
+    return validated;
+  } catch (error: any) {
+    if (error.message.includes('Note not found')) {
+      throw new Error(`Note not found: ${noteId}`);
+    }
+    throw new Error(`Failed to delete note: ${error.message}`);
   }
 }
